@@ -99,7 +99,7 @@
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
-    document.getElementById('installBtn').style.display = 'block';
+    'installBtn').style.display = 'block';
   });
 
   document.getElementById('installBtn').addEventListener('click', async () => {
@@ -115,7 +115,7 @@
     try {
       const res = await fetch('./schedule.json?t=' + Date.now());
       scheduleData = await res.json();
-      document.getElementById('lastChecked').textContent = 'Проверено: ' + scheduleData.lastChecked + ' (МСК+1)';
+      document.getElementById('lastChecked').textContent = 'Проверено: ' + scheduleData.lastChecked;
       renderMode('current');
     } catch (e) {
       document.getElementById('periodText').textContent = 'Нет связи. Отображаются сохранённые данные.';
