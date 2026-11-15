@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Волгоград — Культбаза</title>
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#0056b3">
+  <style>
+    :root { --primary: #0056b3; --bg: #f0f4f8; --card: #ffffff; --text: #1e293b; --muted: #64748b; }
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { margin: 0; padding: 16px; background: var(--bg); color: var(--text); }
+    .container { max-width: 500px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    h1 { font-size: 20px; margin: 0; color: var(--primary); }
+    #installBtn { display: none; background: #10b981; color: white; border: none; padding: 8px 12px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; }
+    .card { background: var(--card); border-radius: 16px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); margin-bottom: 14px; }
+    .period { font-size: 14px; font-weight: 600; color: var(--primary); margin-bottom: 12px; line-height: 1.4; }
+    .badge-future { display: inline-block; background: #fef3c7; color: #b45309; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; text-align: center; }
+    th { background: #f8fafc; color: var(--muted); font-size: 12px; font-weight: 600; padding: 10px 6px; border-bottom: 2px solid #e2e8f0; }
+    td { padding: 12px 6px; border-bottom: 1px solid #f1f5f9; font-size: 15px; font-weight: 500; }
+    td:first-child { text-align: left; font-weight: 600; color: var(--text); }
+    tr:last-child td { border-bottom: none; }
+    .future-banner { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; padding: 12px 14px; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .back-btn { background: #e2e8f0; color: #334155; border: none; width: 100%; padding: 10px; border-radius: 10px; font-weight: 600; margin-top: 12px; cursor: pointer; }
+    .notify-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .btn-notify { background: var(--primary); color: white; border: none; padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; flex: 1; }
+    .btn-notify.active { background: #e0f2fe; color: var(--primary); }
+    select { padding: 9px 10px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 14px; background: white; font-weight: 600; color: var(--text); }
+    .meta { text-align: center; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>⛴ Волгоград — Культбаза</h1>
+    <button id="installBtn">📲 Установить</button>
+  </header>
+
+  <div class="card" id="scheduleCard">
+    <div id="futureTag" class="badge-future" style="display:none;">Планируемое расписание</div>
+    <div class="period" id="periodText">Загрузка расписания...</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="text-align:left;">День недели</th>
+          <th>От Волгограда</th>
+          <th>От Культбазы</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+    <button id="backBtn" class="back-btn" style="display:none;" onclick="renderMode('current')">← Вернуться к расписанию на сегодня</button>
+  </div>
+
+  <div id="futureBanner" class="future-banner" style="display:none;" onclick="renderMode('future')">
+    <span id="futureBannerText"></span>
+    <span>Смотреть →</span>
+  </div>
+
+  <div class="card">
+    <div class="notify-row">
+      <button id="notifyBtn" class="btn-notify" onclick="subscribePush()">🔔 Уведомлять об изменениях</button>
+      <select id="hourSelect" onchange="updateNotifyHour()" title="Время уведомления"></select>
+    </div>
+  </div>
+
+  <div class="meta" id="lastChecked"></div>
+</div>
+
+<script>
+  // === ВСТАВЬТЕ ВАШИ КЛЮЧИ СЮДА ===
+  const SUPABASE_URL = 'https://qxpnzaokqdctnfiqrrvx.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_8XXLxsZNUz0CMPcyi0pcnA_BmtqRW_X';
+  const VAPID_PUBLIC_KEY = 'BGoxLJusUopWO0bf2eLDKx8T1hAKtGEjGYPfLEdoQ_mq-ullHYkj6KAuWMAAuC93zAACbm0ydw2Y32l-bbT42FE';
+  // ===============================
+
+  let scheduleData = null;
+  let deferredPrompt = null;
+
+  // Заполняем список часов с 05:00 до 22:00 (по умолчанию 07:00)
+  const hourSelect = document.getElementById('hourSelect');
+  const savedHour = localStorage.getItem('notifyHour') || '7';
+  for (let h = 5; h <= 22; h++) {
+    const opt = document.createElement('option');
+    opt.value = h;
+    opt.textContent = `в ${String(h).padStart(2, '0')}:00`;
+    if (String(h) === savedHour) opt.selected = true;
+    hourSelect.appendChild(opt);
+  }
+
+  // Регистрация Service Worker и логика кнопки установки PWA
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').then(checkExistingSubscription);
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    document.getElementById('installBtn').style.display = 'block';
+  });
+
+  document.getElementById('installBtn').addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    document.getElementById('installBtn').style.display = 'none';
+  });
+
+  // Загрузка расписания
+  async function loadSchedule() {
+    try {
+      const res = await fetch('./schedule.json?t=' + Date.now());
+      scheduleData = await res.json();
+      document.getElementById('lastChecked').textContent = 'Проверено: ' + scheduleData.lastChecked + ' (МСК+1)';
+      renderMode('current');
+    } catch (e) {
+      document.getElementById('periodText').textContent = 'Нет связи. Отображаются сохранённые данные.';
+    }
+  }
+
+  function renderMode(mode) {
+    if (!scheduleData) return;
+    const isFuture = mode === 'future' && scheduleData.future;
+    const block = isFuture ? scheduleData.future : scheduleData.current;
+
+    document.getElementById('futureTag').style.display = isFuture ? 'inline-block' : 'none';
+    document.getElementById('backBtn').style.display = isFuture ? 'block' : 'none';
+    document.getElementById('periodText').textContent = block ? block.period : 'Расписание не найдено';
+
+    const tbody = document.getElementById('tableBody');
+    tbody.innerHTML = '';
+    if (block && block.rows) {
+      block.rows.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${r.day}</td><td>${r.fromVlg}</td><td>${r.fromKult}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    const banner = document.getElementById('futureBanner');
+    if (!isFuture && scheduleData.future) {
+      document.getElementById('futureBannerText').textContent = `С ${scheduleData.future.changeDate} расписание изменится`;
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  // Работа с Web Push и Supabase
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+  }
+
+  async function saveToSupabase(sub) {
+    const hour = parseInt(hourSelect.value, 10);
+    localStorage.setItem('notifyHour', hour);
+
+    await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions`, {
+      method: 'POST',
+   headers: {
+     'apikey': SUPABASE_ANON_KEY, // здесь ваш sb_publishable_...
+     'Content-Type': 'application/json',
+     'Prefer': 'resolution=merge-duplicates'
+   },
+      body: JSON.stringify({
+        endpoint: sub.endpoint,
+        subscription: sub.toJSON(),
+        notify_hour: hour,
+        updated_at: new Date().toISOString()
+      })
+    });
+  }
+
+  async function checkExistingSubscription() {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      const btn = document.getElementById('notifyBtn');
+      btn.textContent = '✅ Уведомления включены';
+      btn.classList.add('active');
+    }
+  }
+
+  async function subscribePush() {
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        alert('Разрешите уведомления в настройках браузера, чтобы получать оповещения.');
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+      await saveToSupabase(sub);
+      checkExistingSubscription();
+      alert('Готово! Уведомление придёт в ' + hourSelect.options[hourSelect.selectedIndex].text + ', если расписание изменится.');
+    } catch (err) {
+      alert('Ошибка подписки: ' + err.message);
+    }
+  }
+
+  async function updateNotifyHour() {
+    localStorage.setItem('notifyHour', hourSelect.value);
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await saveToSupabase(sub);
+    }
+  }
+
+  loadSchedule();
+</script>
+</body>
+</html>
