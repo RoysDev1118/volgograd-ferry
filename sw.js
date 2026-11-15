@@ -7,10 +7,14 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(self.clients.claim());
+  e.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    )
+  );
+  self.clients.claim();
 });
 
-// Стратегия Network First для schedule.json (всегда свежие данные, но работает без сети)
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
@@ -24,7 +28,6 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
-// Отображение Push-уведомления на экране Android
 self.addEventListener('push', (e) => {
   const data = e.data ? e.data.json() : { title: 'Речпорт Волгоград', body: 'Расписание обновилось' };
   e.waitUntil(
