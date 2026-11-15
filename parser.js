@@ -24,31 +24,58 @@ function getVolgogradNow() {
 }
 
 function parsePeriodDates(text, refDate) {
-  const regex = /(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)/gi;
-  const matches = [...text.matchAll(regex)];
-  if (matches.length === 0) return null;
-
+  // 1. Сначала ищем словесный формат: "13 ноября"
+  const wordRegex = /(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)/gi;
+  const wordMatches = [...text.matchAll(wordRegex)];
+  
   const year = refDate.getFullYear();
-  const first = matches.at(0);
-  const startDay = parseInt(first.at(1), 10);
-  const startMonth = MONTHS[first.at(2).toLowerCase()];
-  const startDate = new Date(year, startMonth, startDay, 0, 0, 0);
 
-  let endDate = null;
-  if (matches.length >= 2) {
-    const second = matches.at(1);
-    const endDay = parseInt(second.at(1), 10);
-    const endMonth = MONTHS[second.at(2).toLowerCase()];
-    let endYear = year;
-    if (endMonth < startMonth) endYear += 1;
-    endDate = new Date(endYear, endMonth, endDay, 23, 59, 59);
+  if (wordMatches.length > 0) {
+    const first = wordMatches.at(0);
+    const startDay = parseInt(first.at(1), 10);
+    const startMonth = MONTHS[first.at(2).toLowerCase()];
+    const startDate = new Date(year, startMonth, startDay, 0, 0, 0);
+
+    let endDate = null;
+    if (wordMatches.length >= 2) {
+      const second = wordMatches.at(1);
+      const endDay = parseInt(second.at(1), 10);
+      const endMonth = MONTHS[second.at(2).toLowerCase()];
+      const endYear = endMonth < startMonth ? year + 1 : year;
+      endDate = new Date(endYear, endMonth, endDay, 23, 59, 59);
+    }
+    return {
+      startDate,
+      endDate,
+      startFormatted: `${String(startDay).padStart(2, '0')}.${String(startMonth + 1).padStart(2, '0')}`
+    };
   }
 
-  return {
-    startDate,
-    endDate,
-    startFormatted: `${String(startDay).padStart(2, '0')}.${String(startMonth + 1).padStart(2, '0')}`
-  };
+  // 2. Запасной вариант — цифровой формат: "13.11" или "13.11.2026"
+  const numRegex = /(\d{1,2})\.(\d{2})(?:\.(\d{2,4}))?/g;
+  const numMatches = [...text.matchAll(numRegex)];
+  if (numMatches.length > 0) {
+    const first = numMatches.at(0);
+    const startDay = parseInt(first.at(1), 10);
+    const startMonth = parseInt(first.at(2), 10) - 1;
+    const startDate = new Date(year, startMonth, startDay, 0, 0, 0);
+
+    let endDate = null;
+    if (numMatches.length >= 2) {
+      const second = numMatches.at(1);
+      const endDay = parseInt(second.at(1), 10);
+      const endMonth = parseInt(second.at(2), 10) - 1;
+      const endYear = endMonth < startMonth ? year + 1 : year;
+      endDate = new Date(endYear, endMonth, endDay, 23, 59, 59);
+    }
+    return {
+      startDate,
+      endDate,
+      startFormatted: `${String(startDay).padStart(2, '0')}.${String(startMonth + 1).padStart(2, '0')}`
+    };
+  }
+
+  return null;
 }
 
 async function run() {
@@ -71,21 +98,21 @@ async function run() {
 
     // Ищем текст с периодом действия перед текущей таблицей в общем контейнере статьи
     let periodText = '';
-    const container = $(table).closest('div[itemprop="articleBody"], .item-page, article, body');
-    const containerHtml = container.html() || '';
+    const bodyHtml = $('body').html() || '';
     const tableHtml = $.html(table);
-    const pos = containerHtml.indexOf(tableHtml);
+    const pos = bodyHtml.indexOf(tableHtml);
 
     if (pos !== -1) {
-      // Берём кусок текста длиной 600 символов непосредственно перед таблицей
-      const beforeHtml = containerHtml.slice(Math.max(0, pos - 800), pos);
+      const beforeHtml = bodyHtml.slice(Math.max(0, pos - 600), pos);
       const beforeText = cheerio.load(beforeHtml).text().replace(/\s+/g, ' ').trim();
-      // Ищем фразу вида "с 13 ноября по 06 декабря" или "Действует с..."
-      const periodMatch = beforeText.match(/((?:расписание|действует|волгоград[^.]*?)?с\s+\d{1,2}\s+[а-я]+(?:\s+по\s+\d{1,2}\s+[а-я]+)?(?:\s+\d{4}\s*г\.?)?)/i);
+      // Отрезаем всё, что было до последнего упоминания Волгограда/Культбазы перед этой таблицей
+      const routeStart = beforeText.search(/Волгоград\s*[-–—]\s*Культбаза/i);
+      const relevantText = routeStart !== -1 ? beforeText.slice(routeStart) : beforeText;
+
+      const periodMatch = relevantText.match(/(Волгоград\s*[-–—]\s*Культбаза[^:;\n]*)/i) ||
+                          relevantText.match(/([сc]\s+\d{1,2}[\s.][а-я0-9.]+(?:\s+по\s+\d{1,2}[\s.][а-я0-9.]+)?(?:\s+\d{4}\s*г\.?)?)/i);
       if (periodMatch) {
-        periodText = periodMatch.at(1).trim();
-        // Делаем первую букву заглавной
-        periodText = periodText.charAt(0).toUpperCase() + periodText.slice(1);
+        periodText = periodMatch.at(1).replace(/\s+/g, ' ').trim();
       }
     }
 
