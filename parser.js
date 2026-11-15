@@ -17,30 +17,30 @@ const MONTHS = {
   'сентября': 8, 'октября': 9, 'ноября': 10, 'декабря': 11
 };
 
-// Текущее время в Волгограде (UTC+3)
 function getVolgogradNow() {
   const now = new Date();
   const utc = now.getTime() + now.getTimezoneOffset() * 60000;
   return new Date(utc + 3 * 3600000);
 }
 
-// Извлекаем даты начала и конца действия из заголовка
 function parsePeriodDates(text, refDate) {
   const regex = /(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)/gi;
   const matches = [...text.matchAll(regex)];
   if (matches.length === 0) return null;
 
   const year = refDate.getFullYear();
-  const startDay = parseInt(matches[0][1], 10);
-  const startMonth = MONTHS[matches[0][2].toLowerCase()];
+  const first = matches.at(0);
+  const startDay = parseInt(first.at(1), 10);
+  const startMonth = MONTHS[first.at(2).toLowerCase()];
   const startDate = new Date(year, startMonth, startDay, 0, 0, 0);
 
   let endDate = null;
   if (matches.length >= 2) {
-    const endDay = parseInt(matches[1][1], 10);
-    const endMonth = MONTHS[matches[1][2].toLowerCase()];
+    const second = matches.at(1);
+    const endDay = parseInt(second.at(1), 10);
+    const endMonth = MONTHS[second.at(2).toLowerCase()];
     let endYear = year;
-    if (endMonth < startMonth) endYear += 1; // переход через Новый год
+    if (endMonth < startMonth) endYear += 1;
     endDate = new Date(endYear, endMonth, endDay, 23, 59, 59);
   }
 
@@ -62,31 +62,33 @@ async function run() {
   const html = await res.text();
   const $ = cheerio.load(html);
 
+  // Удаляем все таблицы во временной копии, чтобы вытащить чистые текстовые блоки перед ними
   const parsedBlocks = [];
 
-  // Ищем все таблицы, относящиеся к Культбазе
-  $('table').each((_, table) => {
+  $('table').each((tableIndex, table) => {
     const tableText = $(table).text();
     if (!tableText.includes('Культбаза')) return;
 
-    // 1. Собираем текст из соседних элементов сверху и из родителя
-    let periodCandidates = [];
-    let prev = $(table).prev();
-    for (let i = 0; i < 5; i++) {
-      if (!prev.length) break;
-      const txt = prev.text().replace(/\s+/g, ' ').trim();
-      if (txt.length > 5 && txt.length < 300) periodCandidates.unshift(txt);
-      prev = prev.prev();
-    }
-    const parentPrev = $(table).parent().prev();
-    if (parentPrev.length) {
-      const pTxt = parentPrev.text().replace(/\s+/g, ' ').trim();
-      if (pTxt.length > 5 && pTxt.length < 300) periodCandidates.unshift(pTxt);
+    // Ищем текст с периодом действия перед текущей таблицей в общем контейнере статьи
+    let periodText = '';
+    const container = $(table).closest('div[itemprop="articleBody"], .item-page, article, body');
+    const containerHtml = container.html() || '';
+    const tableHtml = $.html(table);
+    const pos = containerHtml.indexOf(tableHtml);
+
+    if (pos !== -1) {
+      // Берём кусок текста длиной 600 символов непосредственно перед таблицей
+      const beforeHtml = containerHtml.slice(Math.max(0, pos - 800), pos);
+      const beforeText = cheerio.load(beforeHtml).text().replace(/\s+/g, ' ').trim();
+      // Ищем фразу вида "с 13 ноября по 06 декабря" или "Действует с..."
+      const periodMatch = beforeText.match(/((?:расписание|действует|волгоград[^.]*?)?с\s+\d{1,2}\s+[а-я]+(?:\s+по\s+\d{1,2}\s+[а-я]+)?(?:\s+\d{4}\s*г\.?)?)/i);
+      if (periodMatch) {
+        periodText = periodMatch.at(1).trim();
+        // Делаем первую букву заглавной
+        periodText = periodText.charAt(0).toUpperCase() + periodText.slice(1);
+      }
     }
 
-    let periodText = periodCandidates.filter(t => /действует|расписание|волгоград|период|с\s+\d{1,2}/i.test(t)).join('. ');
-
-    // Определяем индексы нужных колонок (исключая Щучий проран)
     let idxVolgograd = 1;
     let idxKultbaza = -1;
     const rows = [];
@@ -95,9 +97,9 @@ async function run() {
       const cells = $(tr).find('th, td').map((__, td) => $(td).text().replace(/\s+/g, ' ').trim()).get();
       if (cells.length === 0) return;
 
-      // Если дата действия зашита в объединённую шапку внутри самой таблицы
-      if (cells.length === 1 && /действует|с\s+\d{1,2}\s+[а-я]+/i.test(cells)) {
-        periodText = (periodText + ' ' + cells).trim();
+      // Проверяем объединённую строку внутри самой таблицы
+      if (cells.length === 1 && /с\s+\d{1,2}\s+[а-я]+/i.test(cells.at(0))) {
+        periodText = cells.at(0);
         return;
       }
 
@@ -113,9 +115,9 @@ async function run() {
 
       if (idxKultbaza === -1) idxKultbaza = cells.length - 1;
 
-      const day = cells;
-      const fromVlg = cells[idxVolgograd] || '—';
-      const fromKult = cells[idxKultbaza] || '—';
+      const day = cells.at(0);
+      const fromVlg = cells.at(idxVolgograd) || '—';
+      const fromKult = cells.at(idxKultbaza) || '—';
 
       if (day && (fromVlg !== '—' || fromKult !== '—')) {
         rows.push({ day, fromVlg, fromKult });
@@ -128,7 +130,6 @@ async function run() {
     }
   });
 
-  // Выбираем актуальную таблицу на сегодня и таблицу на будущее
   let currentSchedule = null;
   let futureSchedule = null;
 
@@ -147,9 +148,8 @@ async function run() {
     }
   }
 
-  // Если ни одна не попала в диапазон дат, берём первую найденную
   if (!currentSchedule && parsedBlocks.length > 0) {
-    currentSchedule = parsedBlocks[0];
+    currentSchedule = parsedBlocks.at(0);
   }
 
   const output = {
@@ -165,7 +165,6 @@ async function run() {
     } : null
   };
 
-  // Считаем хэш только от полезных данных расписания (без времени проверки)
   const dataHash = crypto
     .createHash('sha256')
     .update(JSON.stringify({ current: output.current, future: output.future }))
@@ -173,14 +172,12 @@ async function run() {
 
   output.hash = dataHash;
   fs.writeFileSync('schedule.json', JSON.stringify(output, null, 2), 'utf-8');
-  console.log('schedule.json обновлён. Хэш:', dataHash);
+  console.log('schedule.json обновлён. Период:', output.current?.period);
 
-  // Отправка Push-уведомлений через Supabase
   if (SUPABASE_URL && SUPABASE_SERVICE_KEY && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
     webpush.setVapidDetails('mailto:admin@example.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-    // Ищем подписчиков, у которых выбран текущий час И хэш расписания изменился
     const { data: subs, error } = await supabase
       .from('push_subscriptions')
       .select('*')
@@ -192,8 +189,6 @@ async function run() {
       return;
     }
 
-    console.log(`Найдено подписчиков для отправки в ${currentHour}:00 -> ${subs?.length || 0}`);
-
     const bodyText = output.future
       ? `С ${output.future.changeDate} изменится расписание Волгоград — Культбаза. Нажмите, чтобы посмотреть.`
       : `Обновилось расписание рейсов Волгоград — Культбаза (${output.current?.period || ''}).`;
@@ -202,17 +197,13 @@ async function run() {
       try {
         await webpush.sendNotification(
           row.subscription,
-          JSON.stringify({
-            title: 'Речпорт Волгоград',
-            body: bodyText
-          })
+          JSON.stringify({ title: 'Речпорт Волгоград', body: bodyText })
         );
         await supabase
           .from('push_subscriptions')
           .update({ last_notified_hash: dataHash, updated_at: new Date().toISOString() })
           .eq('endpoint', row.endpoint);
       } catch (err) {
-        // Если пользователь отозвал разрешение или удалил браузер (код 410/404) — чистим базу
         if (err.statusCode === 410 || err.statusCode === 404) {
           await supabase.from('push_subscriptions').delete().eq('endpoint', row.endpoint);
         } else {
