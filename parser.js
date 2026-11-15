@@ -69,18 +69,22 @@ async function run() {
     const tableText = $(table).text();
     if (!tableText.includes('Культбаза')) return;
 
-    // Ищем заголовок перед таблицей (период действия)
-    let periodText = '';
+    // 1. Собираем текст из соседних элементов сверху и из родителя
+    let periodCandidates = [];
     let prev = $(table).prev();
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       if (!prev.length) break;
-      const txt = prev.text().trim();
-      if (txt.match(/действует|расписание|волгоград/i) && txt.length < 250) {
-        periodText = txt + ' ' + periodText;
-      }
+      const txt = prev.text().replace(/\s+/g, ' ').trim();
+      if (txt.length > 5 && txt.length < 300) periodCandidates.unshift(txt);
       prev = prev.prev();
     }
-    periodText = periodText.replace(/\s+/g, ' ').trim();
+    const parentPrev = $(table).parent().prev();
+    if (parentPrev.length) {
+      const pTxt = parentPrev.text().replace(/\s+/g, ' ').trim();
+      if (pTxt.length > 5 && pTxt.length < 300) periodCandidates.unshift(pTxt);
+    }
+
+    let periodText = periodCandidates.filter(t => /действует|расписание|волгоград|период|с\s+\d{1,2}/i.test(t)).join('. ');
 
     // Определяем индексы нужных колонок (исключая Щучий проран)
     let idxVolgograd = 1;
@@ -89,6 +93,14 @@ async function run() {
 
     $(table).find('tr').each((rowIdx, tr) => {
       const cells = $(tr).find('th, td').map((__, td) => $(td).text().replace(/\s+/g, ' ').trim()).get();
+      if (cells.length === 0) return;
+
+      // Если дата действия зашита в объединённую шапку внутри самой таблицы
+      if (cells.length === 1 && /действует|с\s+\d{1,2}\s+[а-я]+/i.test(cells)) {
+        periodText = (periodText + ' ' + cells).trim();
+        return;
+      }
+
       if (cells.length < 2) return;
 
       if (rowIdx === 0 || cells.some(c => c.includes('От Волгограда'))) {
@@ -101,7 +113,7 @@ async function run() {
 
       if (idxKultbaza === -1) idxKultbaza = cells.length - 1;
 
-      const day = cells[0];
+      const day = cells;
       const fromVlg = cells[idxVolgograd] || '—';
       const fromKult = cells[idxKultbaza] || '—';
 
