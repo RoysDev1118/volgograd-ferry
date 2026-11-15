@@ -1,5 +1,5 @@
-const CACHE_NAME = 'vlg-ferry-v1';
-const ASSETS = ['./', './index.html', './manifest.json'];
+const CACHE_NAME = 'vlg-ferry-v3';
+const ASSETS = ['./', './index.html', './manifest.json', './icon.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
@@ -30,7 +30,7 @@ self.addEventListener('push', (e) => {
   e.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
-      icon: 'https://flaticon.com',
+      icon: './icon.png',
       vibrate: [200, 100, 200]
     })
   );
