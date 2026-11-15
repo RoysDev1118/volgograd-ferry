@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vlg-ferry-v3';
+const CACHE_NAME = 'vlg-ferry-v4';
 const ASSETS = ['./', './index.html', './manifest.json', './icon.png'];
 
 self.addEventListener('install', (e) => {
@@ -34,7 +34,8 @@ self.addEventListener('push', (e) => {
     self.registration.showNotification(data.title, {
       body: data.body,
       icon: './icon.png',
-      vibrate: [200, 100, 200]
+      vibrate: [200, 100, 400, 100, 200],
+      requireInteraction: true
     })
   );
 });
