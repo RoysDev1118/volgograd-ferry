@@ -99,7 +99,7 @@
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
-    'installBtn').style.display = 'block';
+    document.getElementById('installBtn').style.display = 'block';
   });
 
   document.getElementById('installBtn').addEventListener('click', async () => {
