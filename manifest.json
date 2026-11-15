@@ -1,0 +1,16 @@
+{
+  "name": "Расписание: Волгоград — Культбаза",
+  "short_name": "Культбаза",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f0f4f8",
+  "theme_color": "#0056b3",
+  "icons": [
+    {
+      "src": "https://flaticon.com",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
